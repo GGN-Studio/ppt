@@ -572,6 +572,72 @@
       #font-range { height: 28px; }
       .idx-drop { padding: 40px 24px; }
     }
+
+    /* ── 인식 텍스트 플로팅 오버레이 (모바일 전용) ── */
+    #recognized-overlay {
+      display: none;
+      position: fixed;
+      bottom: 52px;
+      left: 12px;
+      max-width: calc(100vw - 220px);
+      background: rgba(10, 11, 22, 0.92);
+      border: 1px solid rgba(155, 143, 253, 0.28);
+      border-radius: 16px;
+      padding: 7px 14px;
+      font-size: .82rem;
+      color: #c4b5ff;
+      z-index: 201;
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      pointer-events: none;
+    }
+    #recognized-overlay.show { display: block; }
+
+    /* ── STT 얼럿 모달 ── */
+    #stt-alert {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 800;
+      background: rgba(0, 0, 0, 0.78);
+      align-items: center;
+      justify-content: center;
+      backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px);
+    }
+    #stt-alert.show { display: flex; }
+    .stt-alert-box {
+      background: #0d0e1a;
+      border: 1.5px solid #2a2d48;
+      border-radius: 22px;
+      padding: 30px 28px 24px;
+      text-align: center;
+      max-width: 300px;
+      width: 88%;
+    }
+    .stt-alert-icon { font-size: 2rem; margin-bottom: 12px; }
+    .stt-alert-msg {
+      font-size: .88rem;
+      color: #c8c9e0;
+      line-height: 1.7;
+      margin-bottom: 20px;
+      white-space: pre-line;
+    }
+    .stt-alert-btn {
+      background: linear-gradient(135deg, #7c6ff0, #9b8ffd);
+      border: none;
+      color: #fff;
+      font-family: inherit;
+      font-size: .9rem;
+      font-weight: 700;
+      padding: 11px 36px;
+      border-radius: 10px;
+      cursor: pointer;
+      min-height: 44px;
+    }
   </style>
 </head>
 <body>
@@ -626,6 +692,18 @@
 
 <!-- ═══ FULLSCREEN EXIT BUTTON ═══ -->
 <button id="fs-exit-btn" onclick="fsExit()">✕ 나가기</button>
+
+<!-- ═══ 인식 텍스트 오버레이 (모바일) ═══ -->
+<div id="recognized-overlay"></div>
+
+<!-- ═══ STT 얼럿 모달 ═══ -->
+<div id="stt-alert">
+  <div class="stt-alert-box">
+    <div class="stt-alert-icon">🎤</div>
+    <div class="stt-alert-msg" id="stt-alert-msg">음성인식을 사용할 수 없습니다</div>
+    <button class="stt-alert-btn" onclick="document.getElementById('stt-alert').classList.remove('show')">확인</button>
+  </div>
+</div>
 
 <!-- ═══ RECORDING PANEL ═══ -->
 <div id="rec-modal" onclick="stopMic()" title="클릭하여 중지">
@@ -1646,6 +1724,24 @@ function showMatchToast(idx) {
 // ══════════════════════════════════════════════
 //  SPEECH RECOGNITION
 // ══════════════════════════════════════════════
+// ── 인식 텍스트 헬퍼 (controls 바 + 모바일 오버레이 동시 업데이트) ──
+const _isTouch = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+
+function setRecognized(text) {
+  document.getElementById('recognized').textContent = text;
+  const ov = document.getElementById('recognized-overlay');
+  if (_isTouch) {
+    if (text) { ov.textContent = text; ov.classList.add('show'); }
+    else       { ov.classList.remove('show'); ov.textContent = ''; }
+  }
+}
+
+function showSTTAlert(msg) {
+  if (!_isTouch) return;
+  document.getElementById('stt-alert-msg').textContent = msg;
+  document.getElementById('stt-alert').classList.add('show');
+}
+
 function toggleMic() {
   isListening ? stopMic() : startMic();
 }
@@ -1681,10 +1777,8 @@ function buildRecognition() {
     clearTimeout(silenceTimer);
     const heard = final_ || interim;
     if (heard) {
-      document.getElementById('recognized').textContent = heard;
-      silenceTimer = setTimeout(() => {
-        document.getElementById('recognized').textContent = '';
-      }, 2500);
+      setRecognized(heard);
+      silenceTimer = setTimeout(() => setRecognized(''), 2500);
     }
 
     if (final_) {
@@ -1712,9 +1806,10 @@ function buildRecognition() {
     }
     if (fatalErrors.includes(e.error)) {
       isListening = false;
-      recognition = null;   // 다음 시도 시 재생성
+      recognition = null;
       document.getElementById('rec-modal').classList.remove('show');
       document.getElementById('status').classList.remove('on');
+      showSTTAlert((errMsg[e.error] || '음성인식 오류가 발생했습니다.') + '\n\n마이크 권한을 확인하고 다시 시도해주세요.');
     }
   };
 
@@ -1735,6 +1830,7 @@ function startMic() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) {
     document.getElementById('status').textContent = '❌ Chrome 브라우저가 필요합니다';
+    showSTTAlert('음성인식을 지원하지 않는 브라우저입니다.\nChrome 브라우저에서 열어주세요.');
     return;
   }
 
@@ -1760,6 +1856,7 @@ function stopMic() {
   // 모달 닫기 + 시각화 중단
   document.getElementById('rec-modal').classList.remove('show');
   stopVisualizer();
+  setRecognized('');
 
   // 위치 확인 알림 + 현재 블록 flash 효과
   showMatchToast(curIdx);
@@ -1935,14 +2032,17 @@ function startTeleprompter(text) {
   setIdx(0);
   document.documentElement.style.setProperty('--fs', '0.9rem');
   document.getElementById('font-range').value = '90';
-  // 터치 기기: 전체화면 + 가로 회전 잠금 + 나가기 버튼 표시
-  const isTouch = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
-  if (isTouch) {
-    enterFullscreen();
-    // 세로 모드여도 가로로 회전
-    if (screen.orientation && screen.orientation.lock) {
-      screen.orientation.lock('landscape').catch(() => {});
-    }
+  // 터치 기기: 전체화면 완료 후 가로 회전 잠금 + 나가기 버튼 표시
+  if (_isTouch) {
+    const lockOrientation = () => {
+      if (screen.orientation && screen.orientation.lock) {
+        screen.orientation.lock('landscape').catch(() => {});
+      }
+    };
+    const el = document.documentElement;
+    const go = el.requestFullscreen || el.webkitRequestFullscreen || el.mozRequestFullScreen || el.msRequestFullscreen;
+    if (go) go.call(el).then(lockOrientation).catch(lockOrientation);
+    else lockOrientation();
     document.getElementById('fs-exit-btn').classList.add('visible');
   }
   setTimeout(() => startMic(), 400);
@@ -1962,7 +2062,7 @@ function goHome() {
   document.getElementById('prog-fill').style.width = '0%';
   document.getElementById('status').innerHTML = '준비됨';
   document.getElementById('status').classList.remove('on');
-  document.getElementById('recognized').textContent = '';
+  setRecognized('');
   document.getElementById('idx-file').value = '';
   document.getElementById('direct-textarea').value = '';
   hideDirectInput();
