@@ -226,15 +226,38 @@
       text-overflow: ellipsis;
     }
 
-    #recognized {
-      font-size: .76rem;
-      color: #9b8ffd;
-      max-width: 320px;
+    #recognized { display: none; }
+
+    #recognized-right {
+      font-size: .78rem;
+      color: #b8a0ff;
+      white-space: nowrap;
       overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 300px;
+      text-align: right;
+      flex-shrink: 1;
+    }
+
+    /* ── 인식 텍스트 캡션 (scroll 아래, controls 위) ── */
+    #recognized-caption {
+      flex-shrink: 0;
+      overflow: hidden;
+      max-height: 0;
+      padding: 0 22px;
+      background: rgba(10, 11, 22, 0.97);
+      border-top: 1px solid rgba(124, 111, 240, 0.15);
+      color: #c4b5ff;
+      font-size: .88rem;
+      text-align: center;
       white-space: nowrap;
       text-overflow: ellipsis;
-      flex-shrink: 1;
-      min-width: 0;
+      transition: max-height .2s ease, padding .2s ease;
+      letter-spacing: .01em;
+    }
+    #recognized-caption.show {
+      max-height: 38px;
+      padding: 9px 22px;
     }
 
     #prog-label { font-size: .78rem; color: #7880a0; white-space: nowrap; flex-shrink: 0; }
@@ -259,7 +282,7 @@
       background: rgba(10,11,22,0.95);
       border: 1.5px solid #1e2038;
       border-radius: 20px;
-      padding: 14px 16px 12px;
+      padding: 14px 16px;
       box-shadow: 0 8px 40px rgba(0,0,0,.7), 0 0 0 1px rgba(124,111,240,.12);
       backdrop-filter: blur(18px);
       text-align: center;
@@ -303,7 +326,7 @@
       background: #060810;
       border-radius: 16px;
       overflow: hidden;
-      margin-bottom: 18px;
+      margin-bottom: 0;
       border: 1px solid #1a1d35;
       position: relative;
     }
@@ -330,6 +353,17 @@
     }
     .rec-stop-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(220,38,68,.5); }
     .rec-stop-btn:active { transform: translateY(0); }
+
+    #rec-recognized {
+      font-size: .76rem;
+      color: #b8a0ff;
+      padding: 6px 4px 2px;
+      text-align: center;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      line-height: 1.45;
+    }
 
     /* ── MATCH TOAST ── */
     @keyframes slideUpToast {
@@ -544,7 +578,7 @@
 
       #controls { padding: 8px 14px; gap: 8px; }
       #status { font-size: .75rem; min-width: 0; }
-      #recognized { font-size: .78rem; max-width: 100%; color: #b8a0ff; }
+      #recognized-caption { font-size: .82rem; }
 
       #rec-modal { bottom: 52px; right: 10px; width: 190px; }
 
@@ -572,29 +606,6 @@
       #font-range { height: 28px; }
       .idx-drop { padding: 40px 24px; }
     }
-
-    /* ── 인식 텍스트 플로팅 오버레이 (모바일 전용) ── */
-    #recognized-overlay {
-      display: none;
-      position: fixed;
-      bottom: 52px;
-      left: 12px;
-      max-width: calc(100vw - 220px);
-      background: rgba(10, 11, 22, 0.92);
-      border: 1px solid rgba(155, 143, 253, 0.28);
-      border-radius: 16px;
-      padding: 7px 14px;
-      font-size: .82rem;
-      color: #c4b5ff;
-      z-index: 201;
-      backdrop-filter: blur(10px);
-      -webkit-backdrop-filter: blur(10px);
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      pointer-events: none;
-    }
-    #recognized-overlay.show { display: block; }
 
     /* ── STT 얼럿 모달 ── */
     #stt-alert {
@@ -656,9 +667,12 @@
 
 <div id="scroll"></div>
 
+<!-- 인식 텍스트 캡션 바 (스크롤 영역 아래, controls 위) -->
+<div id="recognized-caption"></div>
+
 <div id="controls">
   <div id="status">준비됨 · Chrome 브라우저에서 열어주세요</div>
-  <div id="recognized"></div>
+  <div id="recognized-right"></div>
 </div>
 
 <!-- ═══ INDEX SCREEN ═══ -->
@@ -693,9 +707,6 @@
 <!-- ═══ FULLSCREEN EXIT BUTTON ═══ -->
 <button id="fs-exit-btn" onclick="fsExit()">✕ 나가기</button>
 
-<!-- ═══ 인식 텍스트 오버레이 (모바일) ═══ -->
-<div id="recognized-overlay"></div>
-
 <!-- ═══ STT 얼럿 모달 ═══ -->
 <div id="stt-alert">
   <div class="stt-alert-box">
@@ -712,6 +723,7 @@
       <canvas id="eq-canvas"></canvas>
     </div>
   </div>
+  <div id="rec-recognized"></div>
 </div>
 
 <script>
@@ -1478,11 +1490,8 @@ let fontScale    = 1.0;
 const BUF_MAX    = 150;
 
 // Visualizer state
-let audioCtx   = null;
-let analyser   = null;
-let micSrc     = null;
-let micStream  = null;
-let eqAnimId   = null;
+let eqAnimId      = null;
+let micPermStream = null;   // getUserMedia 스트림 — 권한 유지용
 
 // ══════════════════════════════════════════════
 //  PARSE
@@ -1577,64 +1586,41 @@ function move(dir) {
 }
 
 // ══════════════════════════════════════════════
-//  AUDIO VISUALIZER (이퀄라이저)
+//  AUDIO VISUALIZER (이퀄라이저 — 웨이브 시뮬레이션)
 // ══════════════════════════════════════════════
-async function startVisualizer() {
+function startVisualizer() {
   const canvas = document.getElementById('eq-canvas');
   if (!canvas) return;
-  canvas.width  = canvas.offsetWidth || 240;
+  canvas.width  = canvas.offsetWidth || 208;
   canvas.height = 70;
-
-  try {
-    // 스트림 한 번만 요청 — 재허용 팝업 방지
-    if (!micStream) {
-      micStream = await navigator.mediaDevices.getUserMedia({
-        audio: { noiseSuppression: true, echoCancellation: true, autoGainControl: false },
-        video: false
-      });
-    }
-    if (!audioCtx) {
-      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      micSrc   = audioCtx.createMediaStreamSource(micStream);
-      analyser = audioCtx.createAnalyser();
-      analyser.fftSize = 256;
-      analyser.smoothingTimeConstant = 0.82;
-      micSrc.connect(analyser);
-    } else if (audioCtx.state === 'suspended') {
-      await audioCtx.resume();
-    }
-    // 기존 애니메이션 취소 후 재시작
-    if (eqAnimId) { cancelAnimationFrame(eqAnimId); eqAnimId = null; }
-    drawEQ();
-  } catch(e) {
-    console.warn('Visualizer:', e);
-  }
+  if (eqAnimId) { cancelAnimationFrame(eqAnimId); eqAnimId = null; }
+  drawEQ();
 }
 
 function drawEQ() {
   const canvas = document.getElementById('eq-canvas');
-  if (!canvas || !analyser) return;
+  if (!canvas) return;
 
   const ctx = canvas.getContext('2d');
   const W   = canvas.width;
   const H   = canvas.height;
-  const freqBuf = new Uint8Array(analyser.frequencyBinCount);
   const N   = 50;
   const GAP = 2.5;
   const bw  = (W - GAP * (N + 1)) / N;
+  let t = 0;
 
   function frame() {
     eqAnimId = requestAnimationFrame(frame);
-    analyser.getByteFrequencyData(freqBuf);
-
+    t += 0.07;
     ctx.clearRect(0, 0, W, H);
 
-    // Build bar points
     const pts = [];
     for (let i = 0; i < N; i++) {
-      const di = Math.floor(i * (freqBuf.length * 0.65) / N);
-      const v  = freqBuf[di] / 255;
-      const bh = 5 + v * (H - 14);
+      const wave = Math.sin(t + i * 0.32) * 0.42 +
+                   Math.sin(t * 1.8 + i * 0.18) * 0.22 +
+                   Math.sin(t * 0.6 + i * 0.55) * 0.18;
+      const v  = Math.max(0, Math.min(1, wave + 0.52));
+      const bh = 4 + v * (H - 12);
       const x  = GAP + i * (bw + GAP);
       pts.push({ x0: x, cx: x + bw / 2, y: H - bh, bh, v });
     }
@@ -1689,7 +1675,6 @@ function drawEQ() {
 }
 
 function stopVisualizer() {
-  // 애니메이션만 중단 — micStream·audioCtx·analyser 유지 (재허용 팝업 방지)
   if (eqAnimId) { cancelAnimationFrame(eqAnimId); eqAnimId = null; }
 }
 
@@ -1724,20 +1709,15 @@ function showMatchToast(idx) {
 // ══════════════════════════════════════════════
 //  SPEECH RECOGNITION
 // ══════════════════════════════════════════════
-// ── 인식 텍스트 헬퍼 (controls 바 + 모바일 오버레이 동시 업데이트) ──
+// ── 인식 텍스트 헬퍼 ──
 const _isTouch = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
 
 function setRecognized(text) {
-  document.getElementById('recognized').textContent = text;
-  const ov = document.getElementById('recognized-overlay');
-  if (_isTouch) {
-    if (text) { ov.textContent = text; ov.classList.add('show'); }
-    else       { ov.classList.remove('show'); ov.textContent = ''; }
-  }
+  const el = document.getElementById('recognized-right');
+  if (el) el.textContent = text;
 }
 
 function showSTTAlert(msg) {
-  if (!_isTouch) return;
   document.getElementById('stt-alert-msg').textContent = msg;
   document.getElementById('stt-alert').classList.add('show');
 }
@@ -1766,8 +1746,6 @@ function buildRecognition() {
       const res = e.results[i];
       const t   = res[0].transcript;
       if (res.isFinal) {
-        const conf = res[0].confidence;
-        if (conf > 0 && conf < 0.35) continue;
         final_ += t;
       } else {
         interim += t;
@@ -1826,12 +1804,26 @@ function buildRecognition() {
   return r;
 }
 
-function startMic() {
+async function startMic() {
+  if (isListening) return;   // 중복 시작 방지
+
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) {
     document.getElementById('status').textContent = '❌ Chrome 브라우저가 필요합니다';
     showSTTAlert('음성인식을 지원하지 않는 브라우저입니다.\nChrome 브라우저에서 열어주세요.');
     return;
+  }
+
+  // getUserMedia로 마이크 권한을 먼저 1회 획득하고 스트림 유지
+  // → 이후 recognition.start() 재시작 시 팝업이 반복되지 않음
+  if (!micPermStream) {
+    try {
+      micPermStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    } catch(e) {
+      document.getElementById('status').textContent = '❌ 마이크 권한이 필요합니다';
+      showSTTAlert('마이크 권한이 거부되었습니다.\n브라우저 주소창의 🔒 아이콘에서 권한을 허용해주세요.');
+      return;
+    }
   }
 
   if (!recognition) recognition = buildRecognition();
@@ -1851,12 +1843,11 @@ function stopMic() {
   if (recognition) { try { recognition.stop(); } catch(_) {} }
   document.getElementById('status').innerHTML = '준비됨';
   document.getElementById('status').classList.remove('on');
-  document.getElementById('recognized').textContent = '';
+  setRecognized('');
 
   // 모달 닫기 + 시각화 중단
   document.getElementById('rec-modal').classList.remove('show');
   stopVisualizer();
-  setRecognized('');
 
   // 위치 확인 알림 + 현재 블록 flash 효과
   showMatchToast(curIdx);
@@ -2025,6 +2016,30 @@ document.addEventListener('webkitfullscreenchange', () => {
   }
 });
 
+function showMicTipToast() {
+  // file:// URL에서만, 세션당 1회만 표시
+  if (window.location.protocol !== 'file:') return;
+  if (sessionStorage.getItem('micTipSeen')) return;
+  sessionStorage.setItem('micTipSeen', '1');
+
+  const tip = document.createElement('div');
+  tip.style.cssText = [
+    'position:fixed', 'bottom:84px', 'left:50%', 'transform:translateX(-50%)',
+    'background:#0d0e1a', 'border:1.5px solid #9b8ffd', 'color:#e8e9f3',
+    'padding:14px 22px', 'border-radius:16px', 'font-size:.83rem',
+    'text-align:center', 'z-index:900', 'line-height:1.7',
+    'max-width:320px', 'width:90%',
+    'box-shadow:0 4px 24px rgba(124,111,240,.35)',
+    'pointer-events:none'
+  ].join(';');
+  tip.innerHTML =
+    '🎤 마이크 권한 팝업이 나타납니다<br>' +
+    '<span style="color:#9b8ffd;font-weight:700">"사이트에 있는 동안 허용"</span>을 선택하면<br>' +
+    '앞으로 팝업이 반복되지 않습니다';
+  document.body.appendChild(tip);
+  setTimeout(() => tip.remove(), 9000);
+}
+
 function startTeleprompter(text) {
   document.getElementById('index-screen').style.display = 'none';
   blocks = parseScript(text);
@@ -2032,28 +2047,19 @@ function startTeleprompter(text) {
   setIdx(0);
   document.documentElement.style.setProperty('--fs', '0.9rem');
   document.getElementById('font-range').value = '90';
-  // 터치 기기: 전체화면 완료 후 가로 회전 잠금 + 나가기 버튼 표시
+  // 터치 기기: 전체화면 + 나가기 버튼 표시 (방향은 자유 — 기기 방향 따름)
   if (_isTouch) {
-    const lockOrientation = () => {
-      if (screen.orientation && screen.orientation.lock) {
-        screen.orientation.lock('landscape').catch(() => {});
-      }
-    };
-    const el = document.documentElement;
-    const go = el.requestFullscreen || el.webkitRequestFullscreen || el.mozRequestFullScreen || el.msRequestFullscreen;
-    if (go) go.call(el).then(lockOrientation).catch(lockOrientation);
-    else lockOrientation();
+    enterFullscreen();
     document.getElementById('fs-exit-btn').classList.add('visible');
   }
+  showMicTipToast();
   setTimeout(() => startMic(), 400);
 }
 
 function goHome() {
   stopMic();
   fsExit();
-  if (screen.orientation && screen.orientation.unlock) {
-    screen.orientation.unlock();
-  }
+  // micPermStream은 해제하지 않음 — 페이지 세션 동안 권한 유지 (재시작 팝업 방지)
   document.getElementById('fs-exit-btn').classList.remove('visible');
   blocks = [];
   finalBuf = '';
