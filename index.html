@@ -377,6 +377,7 @@
       margin-bottom: 32px;
     }
     .idx-drop {
+      display: block;
       border: 2px dashed #2a2d48;
       border-radius: 20px;
       padding: 44px 28px;
@@ -384,19 +385,13 @@
       transition: border-color .2s, background .2s;
       margin-bottom: 16px;
       position: relative;
+      text-align: center;
     }
     .idx-drop:hover, .idx-drop.drag {
       border-color: #7c6ff0;
       background: rgba(124,111,240,.06);
     }
-    #idx-file {
-      position: absolute;
-      inset: 0;
-      opacity: 0;
-      cursor: pointer;
-      width: 100%;
-      height: 100%;
-    }
+    #idx-file { display: none; }
     .idx-drop-icon { font-size: 2.2rem; margin-bottom: 12px; }
     .idx-drop-text {
       font-size: .9rem;
@@ -419,6 +414,30 @@
       min-height: 32px;
     }
     #home-btn:hover { color: #9b8ffd; border-color: #7c6ff0; }
+
+    /* ── FULLSCREEN EXIT BUTTON ── */
+    #fs-exit-btn {
+      display: none;
+      position: fixed;
+      bottom: 68px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 500;
+      background: rgba(13,14,26,0.82);
+      border: 1px solid rgba(255,255,255,0.13);
+      color: rgba(255,255,255,0.65);
+      font-family: inherit;
+      font-size: .84rem;
+      padding: 12px 36px;
+      border-radius: 999px;
+      cursor: pointer;
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      transition: color .15s, border-color .15s;
+      white-space: nowrap;
+    }
+    #fs-exit-btn:hover { color: #fff; border-color: rgba(255,255,255,0.3); }
+    #fs-exit-btn.visible { display: block; }
 
     /* ── MOBILE / TABLET RESPONSIVE ── */
     @media (max-width: 640px) {
@@ -493,13 +512,16 @@
     <div class="idx-emoji">🎤</div>
     <div class="idx-title">PT 텔레프롬프터</div>
     <div class="idx-sub">발표 대본을 음성으로 자동 추적합니다</div>
-    <div class="idx-drop" id="idx-drop">
+    <label class="idx-drop" id="idx-drop">
       <input type="file" id="idx-file" accept=".txt">
       <div class="idx-drop-icon">📄</div>
-      <div class="idx-drop-text">TXT 파일을 여기에 드래그하거나<br><strong>클릭하여 선택</strong>하세요</div>
-    </div>
+      <div class="idx-drop-text">TXT 파일을 여기에 드래그하거나<br><strong>클릭/탭하여 선택</strong>하세요</div>
+    </label>
   </div>
 </div>
+
+<!-- ═══ FULLSCREEN EXIT BUTTON ═══ -->
+<button id="fs-exit-btn" onclick="fsExit()">✕ 나가기</button>
 
 <!-- ═══ RECORDING PANEL ═══ -->
 <div id="rec-modal" onclick="stopMic()" title="클릭하여 중지">
@@ -1733,6 +1755,33 @@ function loadFile(file) {
   reader.readAsText(file, 'UTF-8');
 }
 
+// ── FULLSCREEN ──
+function enterFullscreen() {
+  const el = document.documentElement;
+  const go = el.requestFullscreen || el.webkitRequestFullscreen || el.mozRequestFullScreen || el.msRequestFullscreen;
+  if (go) go.call(el).catch(() => {});
+}
+
+function fsExit() {
+  const exit = document.exitFullscreen || document.webkitExitFullscreen || document.mozCancelFullScreen || document.msExitFullscreen;
+  if (exit && (document.fullscreenElement || document.webkitFullscreenElement)) {
+    exit.call(document).catch(() => {});
+  }
+  // iOS: fullscreen API 없어도 버튼은 즉시 숨김
+  document.getElementById('fs-exit-btn').classList.remove('visible');
+}
+
+document.addEventListener('fullscreenchange', () => {
+  if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+    document.getElementById('fs-exit-btn').classList.remove('visible');
+  }
+});
+document.addEventListener('webkitfullscreenchange', () => {
+  if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+    document.getElementById('fs-exit-btn').classList.remove('visible');
+  }
+});
+
 function startTeleprompter(text) {
   document.getElementById('index-screen').style.display = 'none';
   blocks = parseScript(text);
@@ -1740,11 +1789,19 @@ function startTeleprompter(text) {
   setIdx(0);
   document.documentElement.style.setProperty('--fs', '0.9rem');
   document.getElementById('font-range').value = '90';
+  // 터치 기기: 전체화면 진입 + 나가기 버튼 표시
+  const isTouch = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+  if (isTouch) {
+    enterFullscreen();
+    document.getElementById('fs-exit-btn').classList.add('visible');
+  }
   setTimeout(() => startMic(), 400);
 }
 
 function goHome() {
   stopMic();
+  fsExit();
+  document.getElementById('fs-exit-btn').classList.remove('visible');
   blocks = [];
   finalBuf = '';
   document.getElementById('scroll').innerHTML = '';
