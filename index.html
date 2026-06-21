@@ -399,6 +399,94 @@
       line-height: 1.7;
     }
     .idx-drop-text strong { color: #9b8ffd; }
+    /* ── 직접 넣기 ── */
+    .idx-or {
+      font-size: .75rem;
+      color: #2a2d48;
+      margin: 14px 0;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .idx-or::before, .idx-or::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: #1a1d35;
+    }
+
+    .idx-direct-btn {
+      display: block;
+      width: 100%;
+      background: none;
+      border: 1px solid #2a2d48;
+      color: #6668a0;
+      font-family: inherit;
+      font-size: .88rem;
+      padding: 13px 20px;
+      border-radius: 12px;
+      cursor: pointer;
+      transition: border-color .15s, color .15s;
+    }
+    .idx-direct-btn:hover { border-color: #7c6ff0; color: #9b8ffd; }
+
+    #direct-section { width: 100%; }
+
+    #direct-textarea {
+      display: block;
+      width: 100%;
+      height: 260px;
+      background: #0d0e1a;
+      border: 1px solid #1a1d35;
+      border-radius: 12px;
+      color: #e8e9f3;
+      font-family: inherit;
+      font-size: .85rem;
+      line-height: 1.65;
+      padding: 16px 18px;
+      resize: vertical;
+      outline: none;
+      margin-bottom: 12px;
+      transition: border-color .15s;
+    }
+    #direct-textarea:focus { border-color: #4a4e8a; }
+    #direct-textarea::placeholder { color: #2a2d48; line-height: 1.8; }
+
+    .direct-actions { display: flex; gap: 10px; }
+
+    .direct-cancel-btn {
+      flex: 1;
+      background: none;
+      border: 1px solid #1a1d35;
+      color: #44475a;
+      font-family: inherit;
+      font-size: .85rem;
+      padding: 13px;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: color .15s, border-color .15s;
+    }
+    .direct-cancel-btn:hover { color: #7880a0; border-color: #2a2d48; }
+
+    .direct-start-btn {
+      flex: 2;
+      background: linear-gradient(135deg, #7c6ff0, #9b8ffd);
+      border: none;
+      color: #fff;
+      font-family: inherit;
+      font-size: .9rem;
+      font-weight: 700;
+      padding: 13px;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: opacity .15s;
+    }
+    .direct-start-btn:hover { opacity: .88; }
+
+    @media (max-width: 640px) {
+      #direct-textarea { height: 200px; font-size: .82rem; }
+    }
+
     /* ── HOME BUTTON ── */
     #home-btn {
       background: none;
@@ -512,11 +600,26 @@
     <div class="idx-emoji">🎤</div>
     <div class="idx-title">PT 텔레프롬프터</div>
     <div class="idx-sub">발표 대본을 음성으로 자동 추적합니다</div>
-    <label class="idx-drop" id="idx-drop">
-      <input type="file" id="idx-file" accept=".txt">
-      <div class="idx-drop-icon">📄</div>
-      <div class="idx-drop-text">TXT 파일을 여기에 드래그하거나<br><strong>클릭/탭하여 선택</strong>하세요</div>
-    </label>
+
+    <!-- 파일 업로드 영역 -->
+    <div id="idx-file-area">
+      <label class="idx-drop" id="idx-drop">
+        <input type="file" id="idx-file" accept=".txt">
+        <div class="idx-drop-icon">📄</div>
+        <div class="idx-drop-text">TXT 파일을 여기에 드래그하거나<br><strong>클릭/탭하여 선택</strong>하세요</div>
+      </label>
+      <div class="idx-or">또는</div>
+      <button class="idx-direct-btn" onclick="showDirectInput()">✏️ 직접 넣기</button>
+    </div>
+
+    <!-- 직접 입력 영역 -->
+    <div id="direct-section" style="display:none">
+      <textarea id="direct-textarea" placeholder="여기에 대본을 입력하거나 붙여넣으세요...&#10;&#10;빈 줄로 단락을 구분합니다."></textarea>
+      <div class="direct-actions">
+        <button class="direct-cancel-btn" onclick="hideDirectInput()">← 돌아가기</button>
+        <button class="direct-start-btn" onclick="submitDirectInput()">시작하기 →</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -1749,6 +1852,23 @@ function initIndexScreen() {
   }
 }
 
+function showDirectInput() {
+  document.getElementById('idx-file-area').style.display = 'none';
+  document.getElementById('direct-section').style.display = 'block';
+  document.getElementById('direct-textarea').focus();
+}
+
+function hideDirectInput() {
+  document.getElementById('direct-section').style.display = 'none';
+  document.getElementById('idx-file-area').style.display = 'block';
+}
+
+function submitDirectInput() {
+  const text = document.getElementById('direct-textarea').value.trim();
+  if (!text) return;
+  startTeleprompter(text);
+}
+
 function loadFile(file) {
   const reader = new FileReader();
   reader.onload = (e) => startTeleprompter(e.target.result);
@@ -1811,6 +1931,8 @@ function goHome() {
   document.getElementById('status').classList.remove('on');
   document.getElementById('recognized').textContent = '';
   document.getElementById('idx-file').value = '';
+  document.getElementById('direct-textarea').value = '';
+  hideDirectInput();
   document.getElementById('index-screen').style.display = 'flex';
 }
 
