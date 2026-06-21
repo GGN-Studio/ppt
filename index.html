@@ -228,12 +228,13 @@
 
     #recognized {
       font-size: .76rem;
-      color: #7c6ff0;
-      max-width: 260px;
+      color: #9b8ffd;
+      max-width: 320px;
       overflow: hidden;
       white-space: nowrap;
       text-overflow: ellipsis;
-      flex-shrink: 0;
+      flex-shrink: 1;
+      min-width: 0;
     }
 
     #prog-label { font-size: .78rem; color: #7880a0; white-space: nowrap; flex-shrink: 0; }
@@ -542,8 +543,8 @@
       .block.current { padding: 6px 16px; }
 
       #controls { padding: 8px 14px; gap: 8px; }
-      #status { font-size: .75rem; }
-      #recognized { font-size: .72rem; }
+      #status { font-size: .75rem; min-width: 0; }
+      #recognized { font-size: .78rem; max-width: 100%; color: #b8a0ff; }
 
       #rec-modal { bottom: 52px; right: 10px; width: 190px; }
 
@@ -1649,6 +1650,87 @@ function toggleMic() {
   isListening ? stopMic() : startMic();
 }
 
+// iOS 감지 (continuous 모드 미지원)
+const isIOS = /iP(ad|hone|od)/.test(navigator.userAgent) ||
+              (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+function buildRecognition() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) return null;
+
+  const r = new SR();
+  r.lang = 'ko-KR';
+  r.continuous = !isIOS;      // iOS: continuous 미지원 → onend로 재시작
+  r.interimResults = true;
+  r.maxAlternatives = 1;
+
+  r.onresult = (e) => {
+    let interim = '', final_ = '';
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      const res = e.results[i];
+      const t   = res[0].transcript;
+      if (res.isFinal) {
+        const conf = res[0].confidence;
+        if (conf > 0 && conf < 0.35) continue;
+        final_ += t;
+      } else {
+        interim += t;
+      }
+    }
+
+    clearTimeout(silenceTimer);
+    const heard = final_ || interim;
+    if (heard) {
+      document.getElementById('recognized').textContent = heard;
+      silenceTimer = setTimeout(() => {
+        document.getElementById('recognized').textContent = '';
+      }, 2500);
+    }
+
+    if (final_) {
+      finalBuf = (finalBuf + ' ' + final_).slice(-BUF_MAX);
+      tryAdvance();
+    } else if (interim) {
+      tryAdvanceQuick(interim);
+    }
+  };
+
+  r.onerror = (e) => {
+    const fatalErrors = ['not-allowed', 'service-not-allowed', 'audio-capture'];
+    const errMsg = {
+      'not-allowed':        '❌ 마이크 권한 없음 · 설정에서 허용해주세요',
+      'service-not-allowed':'❌ 음성인식 서비스 차단됨 · HTTPS 필요',
+      'network':            '⚠️ 네트워크 오류 · 재연결 중...',
+      'audio-capture':      '❌ 마이크를 찾을 수 없습니다',
+      'no-speech':          null,
+      'aborted':            null,
+    };
+    const msg = errMsg[e.error];
+    if (msg) {
+      document.getElementById('status').innerHTML =
+        `<span class="rec-pulse"></span>${msg}`;
+    }
+    if (fatalErrors.includes(e.error)) {
+      isListening = false;
+      recognition = null;   // 다음 시도 시 재생성
+      document.getElementById('rec-modal').classList.remove('show');
+      document.getElementById('status').classList.remove('on');
+    }
+  };
+
+  r.onend = () => {
+    if (isListening) {
+      // iOS는 세션이 짧아 300ms, 데스크톱/안드로이드는 150ms 후 재시작
+      setTimeout(() => {
+        if (!recognition) recognition = buildRecognition();
+        try { recognition.start(); } catch(_) {}
+      }, isIOS ? 300 : 150);
+    }
+  };
+
+  return r;
+}
+
 function startMic() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) {
@@ -1656,70 +1738,14 @@ function startMic() {
     return;
   }
 
-  if (!recognition) {
-    recognition = new SR();
-    recognition.lang = 'ko-KR';
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.maxAlternatives = 1;
-
-    recognition.onresult = (e) => {
-      let interim = '', final_ = '';
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        const res = e.results[i];
-        const t   = res[0].transcript;
-        if (res.isFinal) {
-          // 신뢰도 0.35 미만은 노이즈/음악으로 간주 무시 (0은 미제공이므로 허용)
-          const conf = res[0].confidence;
-          if (conf > 0 && conf < 0.35) continue;
-          final_ += t;
-        } else {
-          interim += t;
-        }
-      }
-
-      // 침묵 타이머 초기화 — 말할 때마다 리셋
-      clearTimeout(silenceTimer);
-
-      const heard = final_ || interim;
-      if (heard) {
-        document.getElementById('recognized').textContent = heard;
-        // 2.5초 후 침묵이면 텍스트 삭제
-        silenceTimer = setTimeout(() => {
-          document.getElementById('recognized').textContent = '';
-        }, 2500);
-      }
-
-      if (final_) {
-        finalBuf = (finalBuf + ' ' + final_).slice(-BUF_MAX);
-        tryAdvance();
-      } else if (interim) {
-        tryAdvanceQuick(interim);
-      }
-    };
-
-    recognition.onerror = (e) => {
-      if (e.error === 'not-allowed') {
-        document.getElementById('status').textContent = '❌ 마이크 권한을 허용해주세요';
-        stopMic();
-      }
-    };
-
-    recognition.onend = () => {
-      if (isListening) {
-        setTimeout(() => { try { recognition.start(); } catch(_) {} }, 150);
-      }
-    };
-  }
+  if (!recognition) recognition = buildRecognition();
 
   isListening = true;
   try { recognition.start(); } catch(_) {}
   document.getElementById('status').innerHTML = '<span class="rec-pulse"></span>음성 인식 중 · 말씀하세요';
   document.getElementById('status').classList.add('on');
 
-  // 모달 열기 + 이퀄라이저 시작
   document.getElementById('rec-modal').classList.add('show');
-  // 모달 렌더 후 캔버스 크기 확정
   setTimeout(() => startVisualizer(), 60);
 }
 
@@ -1909,10 +1935,14 @@ function startTeleprompter(text) {
   setIdx(0);
   document.documentElement.style.setProperty('--fs', '0.9rem');
   document.getElementById('font-range').value = '90';
-  // 터치 기기: 전체화면 진입 + 나가기 버튼 표시
+  // 터치 기기: 전체화면 + 가로 회전 잠금 + 나가기 버튼 표시
   const isTouch = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
   if (isTouch) {
     enterFullscreen();
+    // 세로 모드여도 가로로 회전
+    if (screen.orientation && screen.orientation.lock) {
+      screen.orientation.lock('landscape').catch(() => {});
+    }
     document.getElementById('fs-exit-btn').classList.add('visible');
   }
   setTimeout(() => startMic(), 400);
@@ -1921,6 +1951,9 @@ function startTeleprompter(text) {
 function goHome() {
   stopMic();
   fsExit();
+  if (screen.orientation && screen.orientation.unlock) {
+    screen.orientation.unlock();
+  }
   document.getElementById('fs-exit-btn').classList.remove('visible');
   blocks = [];
   finalBuf = '';
